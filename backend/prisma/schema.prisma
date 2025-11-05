@@ -1,0 +1,323 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  ADMIN
+  MANAGER
+  SALES
+  CUSTOMER_SERVICE
+  PRODUCTION
+  SUPPLIER
+  CUSTOMER
+}
+
+enum OrderStatus {
+  DRAFT
+  PENDING
+  CONFIRMED
+  IN_PRODUCTION
+  READY_TO_SHIP
+  SHIPPED
+  DELIVERED
+  CANCELLED
+  RETURNED
+}
+
+enum OrderType {
+  SALES_ORDER
+  PURCHASE_ORDER
+  RETURN_ORDER
+}
+
+enum CustomerType {
+  INDIVIDUAL
+  BUSINESS
+}
+
+enum InvoiceStatus {
+  DRAFT
+  SENT
+  VIEWED
+  PAID
+  OVERDUE
+  CANCELLED
+}
+
+enum IntegrationType {
+  ESP
+  SAGE
+  DISTRIBUTOR_CENTRAL
+  CUSTOM_API
+}
+
+enum NotificationPriority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  password  String
+  firstName String
+  lastName  String
+  role      UserRole
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  orders           Order[]
+  notifications    Notification[]
+  auditLogs        AuditLog[]
+  createdCustomers Customer[]
+  createdSuppliers Supplier[]
+
+  @@map("users")
+}
+
+model Customer {
+  id           String       @id @default(cuid())
+  type         CustomerType
+  name         String
+  email        String       @unique
+  phone        String?
+  street       String
+  city         String
+  state        String
+  postalCode   String
+  country      String
+  creditLimit  Float?
+  paymentTerms String?
+  isActive     Boolean      @default(true)
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+  createdById  String
+
+  // Relations
+  createdBy Customer? @relation("CustomerCreatedBy", fields: [createdById], references: [id])
+  created   Customer[] @relation("CustomerCreatedBy")
+  orders    Order[]
+  invoices  Invoice[]
+
+  @@map("customers")
+}
+
+model Supplier {
+  id           String                 @id @default(cuid())
+  name         String
+  email        String                 @unique
+  phone        String?
+  street       String
+  city         String
+  state        String
+  postalCode   String
+  country      String
+  paymentTerms String?
+  isActive     Boolean                @default(true)
+  createdAt    DateTime               @default(now())
+  updatedAt    DateTime               @updatedAt
+  createdById  String
+
+  // Relations
+  createdBy    User                    @relation(fields: [createdById], references: [id])
+  products     Product[]
+  orders       Order[]
+  integrations SupplierIntegration[]
+
+  @@map("suppliers")
+}
+
+model SupplierIntegration {
+  id         String          @id @default(cuid())
+  type       IntegrationType
+  config     Json
+  isActive   Boolean         @default(true)
+  supplierId String
+
+  // Relations
+  supplier Supplier @relation(fields: [supplierId], references: [id], onDelete: Cascade)
+
+  @@map("supplier_integrations")
+}
+
+model Product {
+  id             String   @id @default(cuid())
+  sku            String   @unique
+  name           String
+  description    String?
+  category       String
+  unitPrice      Float
+  currency       String   @default("USD")
+  stockQuantity  Int      @default(0)
+  minStockLevel  Int      @default(10)
+  isActive       Boolean  @default(true)
+  attributes     Json     @default("{}")
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  supplierId     String?
+
+  // Relations
+  supplier   Supplier?    @relation(fields: [supplierId], references: [id])
+  orderItems OrderItem[]
+  invoiceItems InvoiceItem[]
+
+  @@map("products")
+}
+
+model Order {
+  id          String      @id @default(cuid())
+  orderNumber String      @unique
+  status      OrderStatus @default(DRAFT)
+  type        OrderType   @default(SALES_ORDER)
+  totalAmount Float       @default(0)
+  currency    String      @default("USD")
+  notes       String?
+  dueDate     DateTime?
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+  customerId  String?
+  supplierId  String?
+  createdById String
+
+  // Relations
+  customer  Customer?   @relation(fields: [customerId], references: [id])
+  supplier  Supplier?   @relation(fields: [supplierId], references: [id])
+  createdBy User        @relation(fields: [createdById], references: [id])
+  items     OrderItem[]
+  invoices  Invoice[]
+  auditLogs AuditLog[]
+
+  @@map("orders")
+}
+
+model OrderItem {
+  id            String  @id @default(cuid())
+  quantity      Int
+  unitPrice     Float
+  totalPrice    Float
+  specifications Json    @default("{}")
+  orderId       String
+  productId     String
+
+  // Relations
+  order   Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  product Product @relation(fields: [productId], references: [id])
+
+  @@map("order_items")
+}
+
+model Invoice {
+  id            String        @id @default(cuid())
+  invoiceNumber String        @unique
+  status        InvoiceStatus @default(DRAFT)
+  subtotal      Float
+  taxAmount     Float         @default(0)
+  totalAmount   Float
+  currency      String        @default("USD")
+  issuedAt      DateTime      @default(now())
+  dueDate       DateTime
+  paidAt        DateTime?
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+  orderId       String
+  customerId    String
+
+  // Relations
+  order    Order         @relation(fields: [orderId], references: [id])
+  customer Customer      @relation(fields: [customerId], references: [id])
+  items    InvoiceItem[]
+  payments Payment[]
+
+  @@map("invoices")
+}
+
+model InvoiceItem {
+  id          String  @id @default(cuid())
+  description String
+  quantity    Int
+  unitPrice   Float
+  totalPrice  Float
+  invoiceId   String
+  productId   String
+
+  // Relations
+  invoice Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  product Product @relation(fields: [productId], references: [id])
+
+  @@map("invoice_items")
+}
+
+model Payment {
+  id              String   @id @default(cuid())
+  amount          Float
+  currency        String   @default("USD")
+  paymentMethod   String
+  transactionId   String?
+  stripePaymentId String?
+  status          String   @default("pending")
+  processedAt     DateTime?
+  createdAt       DateTime @default(now())
+  invoiceId       String
+
+  // Relations
+  invoice Invoice @relation(fields: [invoiceId], references: [id])
+
+  @@map("payments")
+}
+
+model Notification {
+  id        String               @id @default(cuid())
+  title     String
+  message   String
+  priority  NotificationPriority @default(MEDIUM)
+  isRead    Boolean              @default(false)
+  createdAt DateTime             @default(now())
+  userId    String
+
+  // Relations
+  user User @relation(fields: [userId], references: [id])
+
+  @@map("notifications")
+}
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  action    String
+  entity    String
+  entityId  String
+  oldData   Json?
+  newData   Json?
+  createdAt DateTime @default(now())
+  userId    String
+  orderId   String?
+
+  // Relations
+  user  User   @relation(fields: [userId], references: [id])
+  order Order? @relation(fields: [orderId], references: [id])
+
+  @@map("audit_logs")
+}
+
+model Integration {
+  id       String @id @default(cuid())
+  name     String
+  type     String
+  config   Json
+  isActive Boolean @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("integrations")
+}
